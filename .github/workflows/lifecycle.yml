@@ -211,7 +211,18 @@ jobs:
           java-version: ${{ matrix.version.java }}
           distribution: temurin
 
+      - name: Install SDL OpenGL dependencies
+        if: matrix.version.mc == '26.3' && matrix.version.xvfb
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libegl1 libegl-mesa0
+        shell: bash
+
       - name: Run game
+        # SDL 3 uses EGL for OpenGL on the Linux virtual display.
+        env:
+          SDL_VIDEO_FORCE_EGL: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
+          LIBGL_ALWAYS_SOFTWARE: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
         timeout-minutes: 3
         uses: ./
         with:
