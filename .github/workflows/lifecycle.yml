@@ -16,6 +16,11 @@ name: Lifecycle
       dirs:
         description: Comma-delimited directories to build and run (i.e. api,1_20,1_21 )
         default: "all"
+      test_mode:
+        description: Platform checks to run
+        type: choice
+        default: all
+        options: [all, rendered, headless]
       headlessmc_repository:
         description: HeadlessMC repository for candidate testing
         default: "headlesshq/headlessmc"
@@ -152,6 +157,11 @@ jobs:
               additional_runs.append(entry)
           
           run_matrix['version'] += additional_runs
+
+          if '${{ inputs.test_mode }}' == 'rendered':
+            run_matrix['version'] = [v for v in run_matrix['version'] if v['xvfb']]
+          elif '${{ inputs.test_mode }}' == 'headless':
+            run_matrix['version'] = [v for v in run_matrix['version'] if not v['xvfb']]
           
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(json.dumps(build_matrix, indent=2))
@@ -278,6 +288,7 @@ jobs:
       - name: Run game with candidate launcher
         env:
           LIBGL_ALWAYS_SOFTWARE: ${{ matrix.version.xvfb && '1' || '' }}
+          SDL_VIDEO_FORCE_EGL: ${{ matrix.version.xvfb && '1' || '' }}
         if: inputs.headlessmc_ref != ''
         timeout-minutes: 3
         uses: ./
