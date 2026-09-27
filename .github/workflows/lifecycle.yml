@@ -16,6 +16,12 @@ name: Lifecycle
       dirs:
         description: Comma-delimited directories to build and run (i.e. api,1_20,1_21 )
         default: "all"
+      headlessmc_repository:
+        description: HeadlessMC repository for candidate testing
+        default: "headlesshq/headlessmc"
+      headlessmc_ref:
+        description: HeadlessMC branch or commit to build (empty uses the release)
+        default: ""
       ref:
         description: Git ref to checkout before build (i.e. my-feature-branch )
         default: "main"
@@ -160,8 +166,7 @@ jobs:
     needs: matrices
     strategy:
       fail-fast: false
-      matrix:
-        ${{ insert }}: ${{ fromJSON(needs.matrices.outputs.build-matrix) }}
+      matrix: ${{ fromJSON(needs.matrices.outputs.build-matrix) }}
     uses: ./.github/workflows/flex-build.yml
     with:
       dir: ${{ matrix.dir }}
@@ -170,17 +175,58 @@ jobs:
       neo: ${{ matrix.neo }}
       java: ${{ matrix.java }}
 
+  candidate-launcher:
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch' && inputs.headlessmc_ref != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout candidate HeadlessMC
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: ${{ inputs.headlessmc_repository }}
+          ref: ${{ inputs.headlessmc_ref }}
+          path: candidate-launcher
+      - name: Install Java 8
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 8
+      - name: Build candidate launcher
+        working-directory: candidate-launcher
+        run: ./gradlew :headlessmc-launcher-wrapper:shadowJar --no-daemon
+      - name: Prepare candidate artifact
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import shutil
+          jars = [p for p in Path('candidate-launcher/headlessmc-launcher-wrapper/build/libs').glob('*.jar')
+                  if not p.name.endswith(('-dev.jar', '-sources.jar', '-javadoc.jar'))]
+          if len(jars) != 1:
+              raise RuntimeError(f'Expected one launcher jar, found {jars}')
+          shutil.copyfile(jars[0], 'headlessmc-launcher-0.0.0.jar')
+          PYTHON
+      - name: Upload candidate launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-launcher
+          path: headlessmc-launcher-0.0.0.jar
+
   run:
-    if: github.event_name != 'push' && fromJSON(needs.matrices.outputs.run-matrix).version[0] != null
+    if: >-
+      !cancelled() && github.event_name != 'push' && needs.build.result == 'success'
+      && (needs.candidate-launcher.result == 'success' || needs.candidate-launcher.result == 'skipped')
+      && fromJSON(needs.matrices.outputs.run-matrix).version[0] != null
     name: Run tests
     needs:
       - matrices
       - build
+      - candidate-launcher
     runs-on: ${{ matrix.version.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        ${{ insert }}: ${{ fromJSON(needs.matrices.outputs.run-matrix) }}
+      matrix: ${{ fromJSON(needs.matrices.outputs.run-matrix) }}
     steps:
       - name: Checkout # TODO: simplify away this step, currently needed for `uses: ./`
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -211,7 +257,30 @@ jobs:
           java-version: ${{ matrix.version.java }}
           distribution: temurin
 
+      - name: Download candidate launcher
+        if: inputs.headlessmc_ref != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-launcher
+
+      - name: Run game with candidate launcher
+        if: inputs.headlessmc_ref != ''
+        timeout-minutes: 3
+        uses: ./
+        with:
+          cache-mc: ${{ matrix.version.cache }}
+          mc: ${{ matrix.version.mc }}
+          mc-runtime-test: none
+          modloader: ${{ matrix.version.modloader }}
+          regex: ${{ matrix.version.regex }}
+          java: ${{ matrix.version.java }}
+          xvfb: ${{ matrix.version.xvfb }}
+          download-hmc: false
+          hmc-version: 0.0.0
+          headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
+
       - name: Run game
+        if: inputs.headlessmc_ref == ''
         timeout-minutes: 3
         uses: ./
         with:
@@ -223,6 +292,16 @@ jobs:
           java: ${{ matrix.version.java }}
           xvfb: ${{ matrix.version.xvfb }}
           headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
+
+      - name: Retain candidate game logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-game-logs-${{ matrix.version.mc }}-${{ matrix.version.type }}-${{ matrix.version.runner }}-${{ matrix.version.xvfb }}
+          path: |
+            run/logs/**
+            run/crash-reports/**
+          if-no-files-found: ignore
 
   release:
     if: needs.release-please.outputs.release_created == 'true'
