@@ -20,7 +20,7 @@ name: Lifecycle
         description: Platform checks to run
         type: choice
         default: all
-        options: [all, rendered, headless]
+        options: [all, rendered, headless, inmemory]
       headlessmc_repository:
         description: HeadlessMC repository for candidate testing
         default: "headlesshq/headlessmc"
@@ -157,6 +157,11 @@ jobs:
               additional_runs.append(entry)
           
           run_matrix['version'] += additional_runs
+
+          if '${{ inputs.test_mode }}' == 'inmemory':
+            # One same-process check per version/loader, using the native entries.
+            run_matrix['version'] = [dict(v, runner='macos-latest', xvfb=False, inmemory=True)
+                                     for v in run_matrix['version'] if v['xvfb']]
 
           if '${{ inputs.test_mode }}' == 'rendered':
             run_matrix['version'] = [v for v in run_matrix['version'] if v['xvfb']]
@@ -299,7 +304,7 @@ jobs:
           xvfb: ${{ matrix.version.xvfb }}
           download-hmc: false
           hmc-version: 0.0.0
-          headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
+          headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} ${{ matrix.version.inmemory && '-inmemory' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
 
       - name: Run game
         if: inputs.headlessmc_ref == ''
@@ -313,7 +318,7 @@ jobs:
           regex: ${{ matrix.version.regex }}
           java: ${{ matrix.version.java }}
           xvfb: ${{ matrix.version.xvfb }}
-          headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
+          headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} ${{ matrix.version.inmemory && '-inmemory' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
 
       - name: Retain candidate game logs
         if: always()
