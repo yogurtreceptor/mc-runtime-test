@@ -159,5 +159,12 @@ runs:
 
     - if: inputs.xvfb != 'true'
       name: Run game
-      run: java -jar headlessmc-launcher-${{ inputs.hmc-version }}.jar --command launch ${{ inputs.regex }} -regex ${{ inputs.headlessmc-command }}
+      run: |
+        if [ "${HMC_CANDIDATE_LOG_CAPTURE:-}" = '1' ]; then
+          mkdir -p run/logs
+          set -o pipefail
+          java -jar headlessmc-launcher-${{ inputs.hmc-version }}.jar --command launch ${{ inputs.regex }} -regex ${{ inputs.headlessmc-command }} 2>&1 | tee run/logs/inmemory-console.log
+        else
+          java -jar headlessmc-launcher-${{ inputs.hmc-version }}.jar --command launch ${{ inputs.regex }} -regex ${{ inputs.headlessmc-command }}
+        fi
       shell: bash

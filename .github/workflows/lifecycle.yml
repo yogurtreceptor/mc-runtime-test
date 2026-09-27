@@ -289,6 +289,7 @@ jobs:
 
       - name: Run game with candidate launcher
         env:
+          HMC_CANDIDATE_LOG_CAPTURE: ${{ inputs.test_mode == 'inmemory' && '1' || '' }}
           LIBGL_ALWAYS_SOFTWARE: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
           SDL_VIDEO_FORCE_EGL: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
         if: inputs.headlessmc_ref != ''
@@ -312,7 +313,7 @@ jobs:
           python3 - <<'PYTHON'
           from pathlib import Path
           import re
-          log = Path('run/logs/latest.log')
+          log = Path('run/logs/inmemory-console.log')
           text = log.read_text()
           stop = text.find('Stopping server')
           assert stop >= 0 and 'Saving chunks for level' in text[stop:], 'World was not saved on shutdown'
