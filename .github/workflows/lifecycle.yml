@@ -273,22 +273,19 @@ jobs:
         with:
           name: candidate-launcher
 
-      - name: Inspect virtual-display graphics
-        if: matrix.version.xvfb
-        env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
+      - name: Install SDL OpenGL dependencies
+        if: matrix.version.mc == '26.3' && matrix.version.xvfb
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-utils libgl1-mesa-dri
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libegl1 libegl-mesa0
           mkdir -p run/logs
-          xvfb-run glxinfo -B 2>&1 | tee run/logs/ci-glxinfo.txt
-          dpkg-query -W 'libgl*' 'libegl*' 'mesa*' > run/logs/ci-graphics-packages.txt
+          dpkg-query -W libegl1 libegl-mesa0 > run/logs/ci-graphics-packages.txt
         shell: bash
 
       - name: Run game with candidate launcher
         env:
-          LIBGL_ALWAYS_SOFTWARE: ${{ matrix.version.xvfb && '1' || '' }}
-          SDL_VIDEO_FORCE_EGL: ${{ matrix.version.xvfb && '1' || '' }}
+          LIBGL_ALWAYS_SOFTWARE: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
+          SDL_VIDEO_FORCE_EGL: ${{ matrix.version.mc == '26.3' && matrix.version.xvfb && '1' || '' }}
         if: inputs.headlessmc_ref != ''
         timeout-minutes: 3
         uses: ./
