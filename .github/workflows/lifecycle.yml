@@ -161,7 +161,7 @@ jobs:
           if '${{ inputs.test_mode }}' == 'inmemory':
             # One same-process check per version/loader, using the native entries.
             run_matrix['version'] = [dict(v, runner='macos-latest', xvfb=False, inmemory=True)
-                                     for v in run_matrix['version'] if v['xvfb']]
+                                     for v in run_matrix['version'] if v['xvfb'] and v['type'] == 'fabric']
 
           if '${{ inputs.test_mode }}' == 'rendered':
             run_matrix['version'] = [v for v in run_matrix['version'] if v['xvfb']]
@@ -305,6 +305,21 @@ jobs:
           download-hmc: false
           hmc-version: 0.0.0
           headlessmc-command: ${{ !matrix.version.xvfb && '-lwjgl' || '' }} ${{ matrix.version.inmemory && '-inmemory' || '' }} --retries 3 --jvm '"-Djava.awt.headless=true${{ matrix.version.mc == '26.3' && ' -DMcRuntimeGameTestInstance=minecraft:always_pass -DMcRuntimeGameTestMinExpectedGameTests=1' || '' }}"'
+
+      - name: Check same-process world shutdown
+        if: inputs.test_mode == 'inmemory'
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          log = Path('run/logs/latest.log')
+          text = log.read_text()
+          stop = text.find('Stopping server')
+          assert stop >= 0 and 'Saving chunks for level' in text[stop:], 'World was not saved on shutdown'
+          if '${{ matrix.version.mc }}' == '26.3':
+              assert re.search(r'Game tests finished: 1 run, 0 required failures, 0 optional failures', text), 'GameTest did not complete'
+          PYTHON
+        shell: bash
 
       - name: Run game
         if: inputs.headlessmc_ref == ''
